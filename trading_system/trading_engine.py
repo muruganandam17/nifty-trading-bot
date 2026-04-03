@@ -54,6 +54,7 @@ class Position:
     entry_time: datetime
     stop_loss: float
     target: float
+    entry_low: float = 0.0  # Low of entry candle for candle-based exit
     current_price: float = 0.0
     pnl: float = 0.0
 
@@ -185,15 +186,38 @@ class TradingEngine:
             elif position.side == PositionSide.SELL and current_price <= position.target:
                 return "Target Achieved"
             
-            # 3. Momentum turning negative
+            # 3. Candle closes below entry candle's low (for long) or above high (for short)
+            if position.entry_low > 0:
+                df = self.data_fetcher.get_historical_data(
+                    position.symbol, period="1d", interval="5m"
+                )
+                if df is not None and len(df) >= 2:
+                    # Check if last closed candle is below entry candle's low
+                    last_close = df.iloc[-1]['Close']
+                    last_low = df.iloc[-1]['Low']
+                    prev_low = df.iloc[-2]['Low'] if len(df) >= 2 else df.iloc[-1]['Low']
+                    
+                    # For LONG: exit if candle closes below previous candle's low
+                    if position.side == PositionSide.BUY:
+                        if last_close < prev_low:
+                            return f"Candle Close Below Prev Low ({prev_low:.2f})"
+                    
+                    # For SHORT: exit if candle closes above previous candle's high
+                    elif position.side == PositionSide.SELL:
+                        last_high = df.iloc[-1]['High']
+                        prev_high = df.iloc[-2]['High'] if len(df) >= 2 else df.iloc[-1]['High']
+                        if last_close > prev_high:
+                            return f"Candle Close Above Prev High ({prev_high:.2f})"
+            
+            # 4. Momentum turning negative
             if momentum < 0 and prev_momentum > 0:
                 return "Momentum Reversal"
             
-            # 4. Squeeze on (consolidation)
+            # 5. Squeeze on (consolidation)
             if squeeze_state == "SQUEEZE_ON":
                 return "Squeeze On (Exit)"
             
-            # 5. Trailing stop: if price moved 2% above entry, move SL to breakeven
+            # 6. Trailing stop: if price moved 2% above entry, move SL to breakeven
             if position.side == PositionSide.BUY:
                 if current_price > position.entry_price * 1.02:
                     # Update stop loss to breakeven
@@ -215,6 +239,17 @@ class TradingEngine:
             return False
         
         try:
+            # Get entry candle's low for candle-based exit
+            entry_low = signal.entry_price  # Default to entry price
+            try:
+                df = self.data_fetcher.get_historical_data(
+                    signal.symbol, period="1d", interval="5m"
+                )
+                if df is not None and len(df) > 0:
+                    entry_low = df.iloc[-1]['Low']  # Low of last (entry) candle
+            except:
+                pass
+            
             # In real trading, execute with broker
             # For now, just log
             if self.broker:
@@ -229,6 +264,7 @@ class TradingEngine:
                 entry_time=datetime.now(),
                 stop_loss=signal.stop_loss,
                 target=signal.target,
+                entry_low=entry_low,
                 current_price=signal.entry_price
             )
             
@@ -237,7 +273,7 @@ class TradingEngine:
             logger.info(
                 f"🎯 ENTRY: {signal.symbol} | Qty: {signal.quantity} | "
                 f"Entry: ₹{signal.entry_price:.2f} | SL: ₹{signal.stop_loss:.2f} | "
-                f"Target: ₹{signal.target:.2f} | Reason: {signal.reason}"
+                f"Target: ₹{signal.target:.2f} | Entry Low: ₹{entry_low:.2f} | Reason: {signal.reason}"
             )
             
             return True
