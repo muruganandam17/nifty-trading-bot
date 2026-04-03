@@ -888,22 +888,36 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.replace('/token', '').strip()
     
     if not text:
-        # Show current status
-        if FLATTRADE_TOKEN:
-            await update.message.reply_text(
-                "✅ *Flattrade Connected*\n"
-                f"User ID: `{FLATTRADE_USER_ID or 'Set'}`\n"
-                f"Token: `{FLATTRADE_TOKEN[:20]}...`\n\n"
-                "To update, send:\n"
-                "/token YOUR_USER_ID YOUR_TOKEN",
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                "❌ *Flattrade Not Connected*\n\n"
-                "To set credentials, send:\n"
-                "/token YOUR_USER_ID YOUR_TOKEN"
-            )
+        # Show help with instructions
+        help_msg = """
+🔑 *Flattrade Token Setup Guide*
+
+*How to get your Flattrade token:*
+
+1️⃣ *Login to Flattrade Pi Web*
+   → https://piconnect.flattrade.in
+
+2️⃣ *Get Session Token:*
+   • Open browser Developer Tools (F12)
+   • Go to Network tab
+   • Make any API call (click any menu)
+   • Look for request headers
+   • Find 'Authorization' header
+   • Copy the token value (long string starting with 'Bearer' or just the token)
+
+3️⃣ *Set token in bot:*
+   `/token YOUR_USER_ID YOUR_SESSION_TOKEN`
+
+*Example:*
+`/token ABC123 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
+
+*After setting:*
+• `/monitorstart` - Start real-time PSAR monitoring with WebSocket
+• `/psarscan` - Scan stocks for PSAR crossovers
+
+*Note:* Token is different from your login password. It's a session token from the API.
+"""
+        await update.message.reply_text(help_msg, parse_mode='Markdown')
         return
     
     # Parse token and user_id
@@ -919,22 +933,27 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from data.flattrade_connector import init_flatrade
             init_flatrade(user_id=FLATTRADE_USER_ID, token=FLATTRADE_TOKEN)
             await update.message.reply_text(
-                "✅ *Flattrade Token Updated!*\n\n"
+                "✅ *Flattrade Connected!*\n\n"
                 f"User ID: `{FLATTRADE_USER_ID}`\n"
                 f"Token: Set ✓\n\n"
-                "Data will now be fetched from Flatrade API",
+                "Now you can:\n"
+                "• `/monitorstart` - Start real-time PSAR monitoring\n"
+                "• `/psarscan` - Scan for PSAR crossovers",
                 parse_mode='Markdown'
             )
         except Exception as e:
             await update.message.reply_text(
-                f"⚠️ Token stored but connection test failed:\n`{str(e)}`\n\n"
-                "Will try using it anyway.",
+                f"⚠️ Token saved but connection test failed:\n`{str(e)[:100]}`\n\n"
+                "You can still try `/monitorstart` - it will use fallback mode.",
                 parse_mode='Markdown'
             )
     else:
         await update.message.reply_text(
-            "Usage: /token USER_ID TOKEN [API_KEY]\n"
-            "Example: /token DEMO123 abcdef123456"
+            "❌ *Invalid format*\n\n"
+            "Use: `/token USER_ID TOKEN`\n\n"
+            "Example: `/token ABC123 your_session_token`\n\n"
+            "Send `/token` alone for setup guide.",
+            parse_mode='Markdown'
         )
 
 
