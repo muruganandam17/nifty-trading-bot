@@ -677,76 +677,105 @@ async def psarscan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'WSTL', 'ZFCVINDIA'
     ]
     
-    # Remove duplicates
-    NIFTY_FO_STOCKS = list(set(NIFTY_FO_STOCKS))
+    # Remove duplicates and sort
+    NIFTY_FO_STOCKS = sorted(list(set(NIFTY_FO_STOCKS)))
     
     # Timeframes to check
     TIMEFRAMES = ['60m', '4h', '1d', '1w']
     
+    # Parse optional arguments: /psarscan [timeframe] [count]
+    # e.g., /psarscan 4h 50 - only scan 4h timeframe, top 50 stocks
+    args = text.split()
+    scan_timeframes = TIMEFRAMES
+    scan_count = len(NIFTY_FO_STOCKS)
+    
+    if args:
+        if args[0] in ['60m', '1h', '4h', '1d', '1w']:
+            scan_timeframes = [args[0]]
+        if len(args) > 1 and args[1].isdigit():
+            scan_count = min(int(args[1]), len(NIFTY_FO_STOCKS))
+    
+    stocks_to_scan = NIFTY_FO_STOCKS[:scan_count]
+    
     await update.message.reply_text(
-        f"🔍 Scanning {len(NIFTY_FO_STOCKS)} stocks across {len(TIMEFRAMES)} timeframes...\n"
+        f"🔍 Scanning {len(stocks_to_scan)} stocks across {len(scan_timeframes)} timeframes...\n"
+        f"Timeframes: {', '.join(scan_timeframes)}\n"
         f"This may take a few minutes... ⏳",
         parse_mode='Markdown'
     )
     
     from strategies.sqz_momentum import check_psar_crossover
     import yfinance as yf
+    import asyncio
     
     results = {'BUY': [], 'SELL': []}
     
-    for idx, symbol in enumerate(NIFTY_FO_STOCKS):
-        for tf in TIMEFRAMES:
-            try:
-                tf_map = {'60m': '1h', '4h': '4h', '1d': '1d', '1w': '1wk'}
-                interval = tf_map.get(tf, tf)
-                
-                ticker = yf.Ticker(f"{symbol}.NS")
-                df = ticker.history(period="30d", interval=interval)
-                
-                if df is None or len(df) < 10:
-                    continue
-                
-                psar_result = check_psar_crossover(symbol, tf)
-                
-                if psar_result.get('crossover'):
-                    direction = psar_result['crossover']
-                    results[direction].append({
-                        'symbol': symbol,
-                        'timeframe': tf,
-                        'price': psar_result.get('price'),
-                        'psar_before': psar_result.get('psar_before'),
-                        'psar_after': psar_result.get('psar_after'),
-                        'timestamp': psar_result.get('timestamp')
-                    })
-            except Exception:
-                continue
+    # Batch processing - scan 10 stocks at a time to avoid rate limiting
+    batch_size = 10
+    
+    for batch_start in range(0, len(stocks_to_scan), batch_size):
+        batch = stocks_to_scan[batch_start:batch_start + batch_size]
         
-        # Progress update every 20 stocks
-        if (idx + 1) % 20 == 0:
-            try:
-                await update.message.reply_text(
-                    f"⏳ Scanned {idx + 1}/{len(NIFTY_FO_STOCKS)} stocks...",
-                    parse_mode='Markdown'
-                )
-            except:
-                pass
+        for symbol in batch:
+            for tf in scan_timeframes:
+                try:
+                    tf_map = {'60m': '1h', '4h': '4h', '1d': '1d', '1w': '1wk'}
+                    interval = tf_map.get(tf, tf)
+                    
+                    ticker = yf.Ticker(f"{symbol}.NS")
+                    df = ticker.history(period="30d", interval=interval)
+                    
+                    if df is None or len(df) < 10:
+                        continue
+                    
+                    psar_result = check_psar_crossover(symbol, tf)
+                    
+                    if psar_result.get('crossover'):
+                        direction = psar_result['crossover']
+                        results[direction].append({
+                            'symbol': symbol,
+                            'timeframe': tf,
+                            'price': psar_result.get('price'),
+                            'psar_before': psar_result.get('psar_before'),
+                            'psar_after': psar_result.get('psar_after'),
+                            'timestamp': psar_result.get('timestamp')
+                        })
+                except Exception:
+                    continue
+            
+            # Small delay to avoid rate limiting
+            await asyncio.sleep(0.1)
+        
+        # Progress update after each batch
+        processed = min(batch_start + batch_size, len(stocks_to_scan))
+        try:
+            await update.message.reply_text(
+                f"⏳ Progress: {processed}/{len(stocks_to_scan)} stocks scanned...",
+                parse_mode='Markdown'
+            )
+        except:
+            pass
     
     # Format message
     msg = "📊 *PSAR CROSSOVER SCAN RESULTS*\n"
     msg += f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-    msg += f"📈 Scanned: {len(NIFTY_FO_STOCKS)} stocks\n"
+    msg += f"📈 Scanned: {len(stocks_to_scan)} stocks, {len(scan_timeframes)} TFs\n"
     msg += "═══════════════════════════\n\n"
     
     if results['BUY']:
         msg += "🟢 *BUY SIGNALS (PSAR crosses ABOVE):*\n"
-        for r in results['BUY']:
+        for r in results['BUY'][:30]:  # Limit to 30 for message length
             msg += f"• {r['symbol']} [{r['timeframe']}] @ ₹{r['price']:.2f}\n"
+        if len(results['BUY']) > 30:
+            msg += f"  ... and {len(results['BUY']) - 30} more\n"
         msg += "\n"
     
     if results['SELL']:
         msg += "🔴 *SELL SIGNALS (PSAR crosses BELOW):*\n"
-        for r in results['SELL']:
+        for r in results['SELL'][:30]:
             msg += f"• {r['symbol']} [{r['timeframe']}] @ ₹{r['price']:.2f}\n"
+        if len(results['SELL']) > 30:
+            msg += f"  ... and {len(results['SELL']) - 30} more\n"
         msg += "\n"
     
     if not results['BUY'] and not results['SELL']:
@@ -766,7 +795,7 @@ async def psarscan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sell_by_tf[tf] = sell_by_tf.get(tf, 0) + 1
         
         msg += "\n\n*By Timeframe:*\n"
-        for tf in TIMEFRAMES:
+        for tf in scan_timeframes:
             b = buy_by_tf.get(tf, 0)
             s = sell_by_tf.get(tf, 0)
             msg += f"  {tf}: 🟢{b} 🔴{s}\n"
