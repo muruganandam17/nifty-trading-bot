@@ -17,7 +17,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Your bot token
-BOT_TOKEN = "8637593160:AAG7VCBAFC5icaxAcvFf1h9QnE6LyMCe0PE"
+BOT_TOKEN = "8651836619:AAGHo3gEfWTNKA58MTwBQd-GCM20w2vYRPw"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

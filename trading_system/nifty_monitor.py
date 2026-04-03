@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot token
-BOT_TOKEN = "8637593160:AAG7VCBAFC5icaxAcvFf1h9QnE6LyMCe0PE"
+BOT_TOKEN = "8651836619:AAGHo3gEfWTNKA58MTwBQd-GCM20w2vYRPw"
 CHAT_ID = None  # Will be set on first message
 
 # Timeframe intervals
