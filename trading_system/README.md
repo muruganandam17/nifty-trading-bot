@@ -86,6 +86,7 @@ python nifty_monitor_bot.py
 | `/alerts` | View current squeeze/PSAR alerts |
 | `/tokenurl` | Get OAuth login URL |
 | `/settoken <code>` | Update FlatTrade token |
+| `/newalert SYMBOL` | Check new alert logic (PSAR + squeeze) |
 
 ## 🔧 Deployment to VPS
 
