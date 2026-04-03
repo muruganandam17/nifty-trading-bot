@@ -1,291 +1,165 @@
 #!/usr/bin/env python3
 """
-Flattrade OAuth Authentication
-Provides OAuth flow for getting access token from Flattrade
+Flattrade OAuth Server - Run on your server, access via IP
+Usage: python3 flattrade_oauth.py
+Access: http://YOUR_SERVER_IP:5000
 """
 
-from flask import Flask, request, redirect, jsonify, session
+from flask import Flask, request, jsonify
 import requests
 import json
 import os
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import socket
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # For session management
 
-# Flattrade OAuth Configuration
-FLATTRADE_CLIENT_ID = "flattrade"  # Usually provided by Flattrade
-FLATTRADE_REDIRECT_URI = "http://localhost:5000/oauth/callback"
-FLATTRADE_AUTH_URL = "https://piconnect.flattrade.in/PiConnectAPI/oauth/authorize"
-FLATTRADE_TOKEN_URL = "https://piconnect.flattrade.in/PiConnectAPI/oauth/token"
-
-# Token storage file
 TOKEN_FILE = "/opt/nifty_monitor/flattrade_token.json"
 
-# Global token storage for the monitoring system
-_access_token = None
-_user_id = None
+def get_local_ip():
+    """Get local IP address"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return '127.0.0.1'
 
-
-def save_token(token: str, user_id: str = None):
-    """Save token to file and memory"""
-    global _access_token, _user_id
-    _access_token = token
-    _user_id = user_id
-    
-    # Save to file
+def save_token(token, user_id):
     os.makedirs(os.path.dirname(TOKEN_FILE), exist_ok=True)
     with open(TOKEN_FILE, 'w') as f:
-        json.dump({
-            'token': token,
-            'user_id': user_id
-        }, f)
-    logger.info(f"Token saved for user: {user_id}")
-
+        json.dump({'token': token, 'user_id': user_id}, f)
 
 def load_token():
-    """Load token from file"""
-    global _access_token, _user_id
-    
     if os.path.exists(TOKEN_FILE):
-        try:
-            with open(TOKEN_FILE, 'r') as f:
-                data = json.load(f)
-                _access_token = data.get('token')
-                _user_id = data.get('user_id')
-                return _access_token, _user_id
-        except:
-            pass
-    return None, None
-
-
-def get_token() -> tuple:
-    """Get current token and user_id"""
-    if _access_token:
-        return _access_token, _user_id
-    return load_token()
-
+        with open(TOKEN_FILE, 'r') as f:
+            return json.load(f)
+    return None
 
 @app.route('/')
 def index():
-    """Show OAuth login link"""
-    return """
-    <html>
-    <head><title>Flattrade OAuth Login</title></head>
-    <body style="font-family: Arial; padding: 40px; text-align: center;">
-        <h1>🔐 Flattrade OAuth Login</h1>
-        <p>Click the button below to login to Flattrade:</p>
-        <br>
-        <a href="/login" style="background: #4CAF50; color: white; padding: 15px 30px; 
-           text-decoration: none; border-radius: 5px; font-size: 18px;">
-            🔗 Login with Flattrade
-        </a>
-        <br><br><hr>
-        <h3>After login, you'll be redirected back with your token.</h3>
-        <p>Then you can start the monitor with: /monitorstart</p>
-    </body>
-    </html>
-    """
-
-
-@app.route('/login')
-def login():
-    """Redirect to Flattrade OAuth login page"""
-    # For Flattrade, they use a session-based auth
-    # This creates a special login URL
-    
-    # Build authorization URL - Flattrade uses a form-based OAuth
-    auth_url = f"https://piconnect.flattrade.in/PiConnectAPI/api/login"
-    
-    # Store return URL in session
-    session['oauth_state'] = "authorized"
-    
-    # Redirect to Flattrade login
-    return redirect(auth_url)
-
-
-@app.route('/oauth/callback')
-def oauth_callback():
-    """Handle OAuth callback with authorization code"""
-    # Check for authorization code or token
-    code = request.args.get('code')
-    token = request.args.get('access_token')
-    error = request.args.get('error')
-    
-    if error:
-        return f"""
-        <html><body style="font-family: Arial; padding: 40px; text-align: center;">
-            <h2 style="color: red;">❌ Error: {error}</h2>
-            <p>{request.args.get('error_description', '')}</p>
-            <br><a href="/">Try Again</a>
-        </body></html>
-        """
-    
-    if token:
-        # Direct token in URL
-        save_token(token, request.args.get('user_id'))
-        return redirect('/success')
-    
-    if code:
-        # Exchange code for token
-        try:
-            resp = requests.post(FLATTRADE_TOKEN_URL, data={
-                'grant_type': 'authorization_code',
-                'code': code,
-                'client_id': FLATTRADE_CLIENT_ID,
-                'redirect_uri': FLATTRADE_REDIRECT_URI
-            })
-            
-            if resp.status_code == 200:
-                token_data = resp.json()
-                access_token = token_data.get('access_token')
-                if access_token:
-                    save_token(access_token, token_data.get('user_id'))
-                    return redirect('/success')
-        except Exception as e:
-            logger.error(f"Token exchange failed: {e}")
-    
-    # If no direct token, show login form
+    ip = get_local_ip()
     return f"""
-    <html>
-    <head><title>Enter Flattrade Credentials</title></head>
-    <body style="font-family: Arial; padding: 40px; text-align: center;">
-        <h1>🔐 Enter Flattrade Credentials</h1>
-        <p>Enter your Flattrade Pi credentials to get session token:</p>
-        <form action="/submit_credentials" method="POST" style="display: inline-block; text-align: left;">
-            <label>User ID:<br>
-            <input type="text" name="user_id" required style="padding: 10px; width: 200px;"></label><br><br>
-            <label>Password:<br>
-            <input type="password" name="password" required style="padding: 10px; width: 200px;"></label><br><br>
-            <button type="submit" style="background: #4CAF50; color: white; padding: 10px 20px; 
-                    border: none; border-radius: 5px; cursor: pointer;">
-                Login
-            </button>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flattrade Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {{ font-family: -apple-system, sans-serif; padding: 20px; background: #f5f5f5; }}
+        .box {{ max-width: 350px; margin: 50px auto; background: white; padding: 30px; 
+               border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        input {{ width: 100%; padding: 12px; margin: 8px 0; box-sizing: border-box; 
+                border: 1px solid #ddd; border-radius: 5px; }}
+        button {{ width: 100%; padding: 14px; background: #4CAF50; color: white; 
+                border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }}
+        button:hover {{ background: #45a049; }}
+        .result {{ background: #d4edda; padding: 15px; border-radius: 5px; margin-top: 20px; 
+                  word-break: break-all; font-family: monospace; font-size: 12px; }}
+        .info {{ background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>🔐 Flattrade Login</h2>
+        <form action="/login" method="POST">
+            <input type="text" name="user_id" placeholder="User ID" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">Login</button>
         </form>
-    </body>
-    </html>
-    """
+        <div class="info">
+            <strong>Server:</strong> {ip}:5000
+        </div>
+    </div>
+</body>
+</html>
+"""
 
-
-@app.route('/submit_credentials', methods=['POST'])
-def submit_credentials():
-    """Process login form and get session token"""
+@app.route('/login', methods=['POST'])
+def login():
     user_id = request.form.get('user_id')
     password = request.form.get('password')
     
-    # Call Flattrade login API
     try:
-        url = "https://piconnect.flattrade.in/PiConnectAPI/api/login"
-        data = {
-            "uid": user_id,
-            "pwd": password,
-            "factor2": "",
-            "du": "192.168.1.1",
-            "appkey": "",  # App key if available
-            "imei": "",
-            "ip": "192.168.1.1",
-            "os": "WINDOWS",
-            "lang": "en"
-        }
+        resp = requests.post(
+            "https://piconnect.flattrade.in/PiConnectAPI/api/login",
+            json={"uid": user_id, "pwd": password, "factor2": "", 
+                  "du": "192.168.1.1", "appkey": "", "imei": "", 
+                  "ip": "192.168.1.1", "os": "WINDOWS", "lang": "en"},
+            timeout=15
+        )
         
-        resp = requests.post(url, json=data, timeout=15)
+        result = resp.json()
         
-        if resp.status_code == 200:
-            result = resp.json()
-            if result.get('stat') == 'Ok':
-                # Get session token
-                sess_token = result.get('sess')
-                if sess_token:
-                    save_token(sess_token, user_id)
-                    return redirect('/success')
-            elif result.get('stat') == 'NotOk':
-                error_msg = result.get('emsg', 'Login failed')
-                return f"""
-                <html><body style="font-family: Arial; padding: 40px; text-align: center;">
-                    <h2 style="color: red;">❌ Login Failed</h2>
-                    <p>{error_msg}</p>
-                    <br><a href="/">Try Again</a>
-                </body></html>
-                """
+        if result.get('stat') == 'Ok':
+            token = result.get('sess')
+            save_token(token, user_id)
+            
+            return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Success</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {{ font-family: -apple-system, sans-serif; padding: 20px; text-align: center; }}
+        .box {{ max-width: 400px; margin: 50px auto; background: white; padding: 30px; 
+               border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h2 {{ color: green; }}
+        .token {{ background: #f0f0f0; padding: 15px; border-radius: 5px; 
+                 word-break: break-all; font-family: monospace; font-size: 11px; 
+                 margin: 15px 0; }}
+        button {{ padding: 10px 20px; background: #007bff; color: white; 
+                border: none; border-radius: 5px; cursor: pointer; }}
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>✅ Login Successful!</h2>
+        <p>Use this in Telegram:</p>
+        <div class="token">/token {user_id} {token}</div>
+        <button onclick="copy()">Copy Command</button>
+        <br><br>
+        <a href="/">← New Login</a>
+    </div>
+    <script>
+        function copy() {{ navigator.clipboard.writeText('/token {user_id} {token}'); alert('Copied!'); }}
+    </script>
+</body>
+</html>
+            """
+        
+        return f"""
+<!DOCTYPE html>
+<html><body style="font-family: sans-serif; padding: 20px; text-align: center;">
+    <h2 style="color: red;">❌ {result.get('emsg', 'Login Failed')}</h2>
+    <a href="/">Try Again</a>
+</body></html>
+        """
+        
     except Exception as e:
         return f"""
-        <html><body style="font-family: Arial; padding: 40px; text-align: center;">
-            <h2 style="color: red;">❌ Error: {str(e)}</h2>
-            <br><a href="/">Try Again</a>
-        </body></html>
+<!DOCTYPE html>
+<html><body style="font-family: sans-serif; padding: 20px; text-align: center;">
+    <h2 style="color: red;">Error: {str(e)}</h2>
+    <a href="/">Try Again</a>
+</body></html>
         """
-    
-    return """
-    <html><body style="font-family: Arial; padding: 40px; text-align: center;">
-        <h2>❌ Login Failed</h2>
-        <p>Please check your credentials and try again.</p>
-        <br><a href="/">Try Again</a>
-    </body></html>
-    """
-
-
-@app.route('/success')
-def success():
-    """Show success page after login"""
-    token, user_id = get_token()
-    return f"""
-    <html>
-    <head><title>Login Successful</title></head>
-    <body style="font-family: Arial; padding: 40px; text-align: center;">
-        <h1 style="color: green;">✅ Login Successful!</h1>
-        <p>User ID: {user_id}</p>
-        <p>Token saved: {token[:20] if token else 'None'}...</p>
-        <br><hr>
-        <h2>Now start your Telegram bot:</h2>
-        <pre style="background: #f0f0f0; padding: 20px; border-radius: 5px;">
-/token {user_id} {token}
-/monitorstart
-        </pre>
-        <br>
-        <p>Or restart your bot to use the new token.</p>
-    </body>
-    </html>
-    """
-
 
 @app.route('/status')
 def status():
-    """Check if token is available"""
-    token, user_id = get_token()
-    if token:
-        return jsonify({
-            'status': 'connected',
-            'user_id': user_id,
-            'token_prefix': token[:10] + '...' if len(token) > 10 else token
-        })
+    data = load_token()
+    if data:
+        return jsonify({'status': 'connected', 'user_id': data.get('user_id')})
     return jsonify({'status': 'not_connected'})
 
-
-@app.route('/token')
-def get_current_token():
-    """API endpoint to get current token"""
-    token, user_id = get_token()
-    if token:
-        return jsonify({'token': token, 'user_id': user_id})
-    return jsonify({'error': 'No token available'}), 401
-
-
-# Standalone OAuth server
 if __name__ == '__main__':
-    # Check if token already exists
-    load_token()
-    
-    print("=" * 50)
+    ip = get_local_ip()
+    print("=" * 60)
     print("🌐 Flattrade OAuth Server")
-    print("=" * 50)
-    print("\n1. Open this URL in your browser:")
-    print("   http://localhost:5000")
-    print("\n2. Login with your Flattrade credentials")
-    print("\n3. After login, copy the token and use in Telegram:")
-    print("   /token USER_ID TOKEN")
-    print("\n" + "=" * 50)
-    
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    print("=" * 60)
+    print(f"\n📱 Open in browser: http://{ip}:5000")
+    print(f"\n🌍 Public access: ngrok http 5000")
+    print("=" * 60)
+    app.run(host='0.0.0.0', port=5000)
