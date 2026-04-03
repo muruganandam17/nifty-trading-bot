@@ -820,9 +820,149 @@ def format_sqzmom_response(data: Dict) -> str:
     return msg
 
 
+def get_squeeze_direction(symbol: str, timeframe: str) -> str:
+    """
+    Get squeeze direction: 'INCREASING' or 'DECREASING' for a timeframe
+    Based on momentum change between recent and previous candles
+    """
+    try:
+        df = get_yahoo_data(symbol, period="10d", interval=timeframe)
+        if df is None or len(df) < 20:
+            return "NONE"
+        
+        sqz_df = calculate_sqzmom(df)
+        if len(sqz_df) < 20:
+            return "NONE"
+        
+        # Compare last 5 candles momentum vs previous 5
+        recent_momentum = sqz_df['momentum'].tail(5).mean()
+        prev_momentum = sqz_df.iloc[-10:-5]['momentum'].mean() if len(sqz_df) >= 10 else sqz_df.head(5)['momentum'].mean()
+        
+        momentum_change = recent_momentum - prev_momentum
+        
+        if momentum_change > 0.1:
+            return "INCREASING"
+        elif momentum_change < -0.1:
+            return "DECREASING"
+        else:
+            return "NONE"
+    except:
+        return "NONE"
+
+
+def check_new_alert_logic(symbol: str) -> dict:
+    """
+    New alert logic based on user requirements:
+    
+    30m PSAR crossover +:
+    - BUY: 60m,120m,240m,1d squeeze INCREASING + PSAR crosses above
+    - SELL: 60m,120m,240m,1d squeeze DECREASING + PSAR crosses below
+    
+    60m PSAR crossover +:
+    - BUY: 120m,240m,1d squeeze INCREASING + PSAR crosses above
+    - SELL: 120m,240m,1d squeeze DECREASING + PSAR crosses below
+    
+    120m PSAR crossover +:
+    - BUY: 240m,1d squeeze INCREASING + PSAR crosses above
+    - SELL: 240m,1d squeeze DECREASING + PSAR crosses below
+    """
+    # Map our TFs to Yahoo TFs: 60m->1h, 120m->2h, 240m->4h
+    tf_config = {
+        '30m': {'interval': '30m', 'squeeze_tfs': [('1h', '60m'), ('2h', '120m'), ('4h', '240m'), ('1d', '1d')], 'psar_cross_above_is_buy': True},
+        '60m': {'interval': '1h', 'squeeze_tfs': [('2h', '120m'), ('4h', '240m'), ('1d', '1d')], 'psar_cross_above_is_buy': True},
+        '120m': {'interval': '2h', 'squeeze_tfs': [('4h', '240m'), ('1d', '1d')], 'psar_cross_above_is_buy': True}
+    }
+    
+    results = {'symbol': symbol, 'alerts': []}
+    
+    for main_tf, config in tf_config.items():
+        # Get PSAR crossover in main timeframe
+        psar_result = check_psar_crossover(symbol, main_tf)
+        
+        if not psar_result.get('crossover'):
+            continue
+        
+        crossover = psar_result['crossover']  # 'BUY' or 'SELL'
+        psar_cross_above = (crossover == 'BUY')  # PSAR above = BUY signal
+        
+        # Get squeeze directions for all required timeframes
+        squeeze_directions = {}
+        valid = True
+        
+        for yahoo_tf, display_name in config['squeeze_tfs']:
+            direction = get_squeeze_direction(symbol, yahoo_tf)
+            if direction == "NONE":
+                valid = False
+                break
+            squeeze_directions[display_name] = direction
+        
+        if not valid:
+            continue
+        
+        # Check conditions
+        should_alert = False
+        
+        if main_tf == '30m':
+            if psar_cross_above:
+                should_alert = all(d == 'INCREASING' for d in ['60m', '120m', '240m', '1d'] if d in squeeze_directions)
+            else:
+                should_alert = all(d == 'DECREASING' for d in ['60m', '120m', '240m', '1d'] if d in squeeze_directions)
+        
+        elif main_tf == '60m':
+            if psar_cross_above:
+                should_alert = all(d == 'INCREASING' for d in ['120m', '240m', '1d'] if d in squeeze_directions)
+            else:
+                should_alert = all(d == 'DECREASING' for d in ['120m', '240m', '1d'] if d in squeeze_directions)
+        
+        elif main_tf == '120m':
+            if psar_cross_above:
+                should_alert = all(d == 'INCREASING' for d in ['240m', '1d'] if d in squeeze_directions)
+            else:
+                should_alert = all(d == 'DECREASING' for d in ['240m', '1d'] if d in squeeze_directions)
+        
+        if should_alert:
+            signal = "🟢 BUY" if psar_cross_above else "🔴 SELL"
+            results['alerts'].append({
+                'timeframe': main_tf,
+                'signal': signal,
+                'psar_crossover': crossover,
+                'psar_price': psar_result['price'],
+                'psar_before': psar_result['psar_before'],
+                'psar_after': psar_result['psar_after'],
+                'timestamp': psar_result['timestamp'],
+                'squeeze_directions': squeeze_directions
+            })
+    
+    return results
+
+
+def format_new_alert_message(symbol: str) -> str:
+    """Format alert results for Telegram message"""
+    result = check_new_alert_logic(symbol)
+    
+    if not result.get('alerts'):
+        return f"ℹ️ No alerts for {symbol}"
+    
+    msg = f"🔔 *NEW ALERT: {symbol}*\n"
+    msg += "=" * 40 + "\n"
+    
+    for alert in result['alerts']:
+        msg += f"\n⏱️ *Timeframe:* {alert['timeframe']}\n"
+        msg += f"📊 *Signal:* {alert['signal']}\n"
+        msg += f"🕐 {alert['timestamp']}\n"
+        msg += f"💰 Price: ₹{alert['psar_price']}\n"
+        msg += f"📈 PSAR: ₹{alert['psar_before']} → ₹{alert['psar_after']}\n"
+        msg += f"\n*Squeeze Directions:*\n"
+        for tf, direction in alert['squeeze_directions'].items():
+            arrow = "📈" if direction == "INCREASING" else "📉" if direction == "DECREASING" else "➡️"
+            msg += f"  {tf}: {direction} {arrow}\n"
+        msg += "-" * 40 + "\n"
+    
+    return msg
+
+
 if __name__ == "__main__":
     import sys
-    
     if len(sys.argv) < 2:
         print("Usage: python sqz_api.py <SYMBOL> [timeframes]")
         print("Example: python sqz_api.py RELIANCE")

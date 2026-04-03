@@ -602,6 +602,33 @@ async def psar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 
+async def newalert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /newalert command - Check new alert logic"""
+    text = update.message.text.replace('/newalert', '').strip().upper()
+    
+    if not text:
+        await update.message.reply_text(
+            "Usage: /newalert SYMBOL\n\n"
+            "Checks for new alert logic:\n"
+            "• 30m PSAR + squeeze in 60m,120m,240m,1d\n"
+            "• 60m PSAR + squeeze in 120m,240m,1d\n"
+            "• 120m PSAR + squeeze in 240m,1d\n\n"
+            "Example: /newalert NIFTY",
+            parse_mode='Markdown'
+        )
+        return
+    
+    symbol = text.split()[0]
+    
+    await update.message.reply_text(f"⏳ Checking new alerts for {symbol}...")
+    
+    from strategies.sqz_momentum import format_new_alert_message
+    
+    msg = format_new_alert_message(symbol)
+    
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
 async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /token command to update Flatrade credentials"""
     global FLATTRADE_TOKEN, FLATTRADE_USER_ID, FLATTRADE_API_KEY
@@ -772,6 +799,7 @@ def main():
     app.add_handler(CommandHandler("summary", summary_command))
     app.add_handler(CommandHandler("entry", entry_command))
     app.add_handler(CommandHandler("psar", psar_command))
+    app.add_handler(CommandHandler("newalert", newalert_command))
     app.add_handler(CommandHandler("token", token_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
