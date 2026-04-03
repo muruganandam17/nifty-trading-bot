@@ -36,11 +36,10 @@ class TradeSignal:
     symbol: str
     direction: TradeDirection  # LONG or SHORT
     entry_price: float
-    stop_loss: float
-    target: float
-    quantity: int
-    confidence: float  # 0-100
-    reason: str
+    timeframe: str = ""  # Timeframe that triggered the signal (e.g., "120m")
+    quantity: int = 0
+    confidence: float = 0.0  # 0-100
+    reason: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -52,8 +51,7 @@ class Position:
     entry_price: float
     quantity: int
     entry_time: datetime
-    stop_loss: float
-    target: float
+    entry_timeframe: str = ""  # Timeframe in which entry was triggered (e.g., "120m")
     entry_low: float = 0.0  # Low of entry candle for candle-based exit
     current_price: float = 0.0
     pnl: float = 0.0
@@ -115,9 +113,6 @@ class TradingEngine:
                              momentum > 0)
             
             if momentum_turning_positive or squeeze_release or strong_momentum:
-                # Calculate stop loss and target
-                stop_loss = current_price * 0.98  # 2% stop loss
-                target = current_price * 1.04  # 4% target
                 quantity = int(DEFAULT_CAPITAL_PER_TRADE / current_price)
                 
                 if quantity > 0:
@@ -134,8 +129,7 @@ class TradingEngine:
                         symbol=symbol,
                         direction=TradeDirection.LONG,
                         entry_price=current_price,
-                        stop_loss=stop_loss,
-                        target=target,
+                        timeframe="5m",  # Entry triggered in 5m timeframe
                         quantity=quantity,
                         confidence=confidence,
                         reason=reason
@@ -149,6 +143,7 @@ class TradingEngine:
     def check_exit_condition(self, position: Position) -> Optional[str]:
         """
         Check if exit conditions are met for a position.
+        Exit only when a candle in the entry timeframe closes below the previous candle's low.
         Returns exit reason if should exit, None otherwise.
         """
         try:
@@ -159,69 +154,37 @@ class TradingEngine:
             position.current_price = current_price
             position.pnl = (current_price - position.entry_price) * position.quantity
             
-            # Get latest data for SQZMOM
-            df = self.data_fetcher.get_historical_data(
-                position.symbol, period="5d", interval="5m"
-            )
+            # Get data for the entry timeframe
+            if position.entry_timeframe:
+                df = self.data_fetcher.get_data_for_timeframe(
+                    position.symbol, position.entry_timeframe
+                )
+            else:
+                # Fallback to 5m if no entry timeframe
+                df = self.data_fetcher.get_historical_data(
+                    position.symbol, period="5d", interval="5m"
+                )
             
-            if df is None:
+            if df is None or len(df) < 2:
                 return None
             
-            sqz_data = calculate_squeeze_momentum(df)
-            momentum = sqz_data.get('momentum', 0)
-            prev_momentum = sqz_data.get('prev_momentum', 0)
-            squeeze_state = sqz_data.get('squeeze_state', 'NO_SQUEEZE')
-            
-            # === EXIT CONDITIONS ===
-            
-            # 1. Stop loss hit
-            if position.side == PositionSide.BUY and current_price <= position.stop_loss:
-                return "Stop Loss Hit"
-            elif position.side == PositionSide.SELL and current_price >= position.stop_loss:
-                return "Stop Loss Hit"
-            
-            # 2. Target reached
-            if position.side == PositionSide.BUY and current_price >= position.target:
-                return "Target Achieved"
-            elif position.side == PositionSide.SELL and current_price <= position.target:
-                return "Target Achieved"
-            
-            # 3. Candle closes below entry candle's low (for long) or above high (for short)
-            if position.entry_low > 0:
-                df = self.data_fetcher.get_historical_data(
-                    position.symbol, period="1d", interval="5m"
-                )
-                if df is not None and len(df) >= 2:
-                    # Check if last closed candle is below entry candle's low
-                    last_close = df.iloc[-1]['Close']
-                    last_low = df.iloc[-1]['Low']
-                    prev_low = df.iloc[-2]['Low'] if len(df) >= 2 else df.iloc[-1]['Low']
-                    
-                    # For LONG: exit if candle closes below previous candle's low
-                    if position.side == PositionSide.BUY:
-                        if last_close < prev_low:
-                            return f"Candle Close Below Prev Low ({prev_low:.2f})"
-                    
-                    # For SHORT: exit if candle closes above previous candle's high
-                    elif position.side == PositionSide.SELL:
-                        last_high = df.iloc[-1]['High']
-                        prev_high = df.iloc[-2]['High'] if len(df) >= 2 else df.iloc[-1]['High']
-                        if last_close > prev_high:
-                            return f"Candle Close Above Prev High ({prev_high:.2f})"
-            
-            # 4. Momentum turning negative
-            if momentum < 0 and prev_momentum > 0:
-                return "Momentum Reversal"
-            
-            # 5. Squeeze on (consolidation)
-            if squeeze_state == "SQUEEZE_ON":
-                return "Squeeze On (Exit)"
-            
-            # 6. Trailing stop: if price moved 2% above entry, move SL to breakeven
+            # Check if last closed candle in entry timeframe closed below previous candle's low
+            # This is for LONG positions
             if position.side == PositionSide.BUY:
-                if current_price > position.entry_price * 1.02:
-                    # Update stop loss to breakeven
-                    position.stop_loss = position.entry_price
+                last_close = df.iloc[-1]['Close']
+                prev_low = df.iloc[-2]['Low']
+                
+                # If last candle closed below previous candle's low, exit
+                if last_close < prev_low:
+                    return f"Exit: {position.entry_timeframe} candle closed below prev low ({prev_low:.2f})"
+            
+            # For SHORT positions - exit if candle closes above previous candle's high
+            elif position.side == PositionSide.SELL:
+                last_close = df.iloc[-1]['Close']
+                prev_high = df.iloc[-2]['High']
+                
+                if last_close > prev_high:
+                    return f"Exit: {position.entry_timeframe} candle closed above prev high ({prev_high:.2f})"
                     
         except Exception as e:
             logger.error(f"Error checking exit for {position.symbol}: {e}")
@@ -239,12 +202,10 @@ class TradingEngine:
             return False
         
         try:
-            # Get entry candle's low for candle-based exit
-            entry_low = signal.entry_price  # Default to entry price
+            # Get entry candle's low from the entry timeframe
+            entry_low = signal.entry_price
             try:
-                df = self.data_fetcher.get_historical_data(
-                    signal.symbol, period="1d", interval="5m"
-                )
+                df = self.data_fetcher.get_data_for_timeframe(signal.symbol, signal.timeframe)
                 if df is not None and len(df) > 0:
                     entry_low = df.iloc[-1]['Low']  # Low of last (entry) candle
             except:
@@ -262,8 +223,7 @@ class TradingEngine:
                 entry_price=signal.entry_price,
                 quantity=signal.quantity,
                 entry_time=datetime.now(),
-                stop_loss=signal.stop_loss,
-                target=signal.target,
+                entry_timeframe=signal.timeframe,  # Store the entry timeframe
                 entry_low=entry_low,
                 current_price=signal.entry_price
             )
@@ -272,8 +232,8 @@ class TradingEngine:
             
             logger.info(
                 f"🎯 ENTRY: {signal.symbol} | Qty: {signal.quantity} | "
-                f"Entry: ₹{signal.entry_price:.2f} | SL: ₹{signal.stop_loss:.2f} | "
-                f"Target: ₹{signal.target:.2f} | Entry Low: ₹{entry_low:.2f} | Reason: {signal.reason}"
+                f"Entry: ₹{signal.entry_price:.2f} | TF: {signal.timeframe} | "
+                f"Entry Low: ₹{entry_low:.2f} | Reason: {signal.reason}"
             )
             
             return True

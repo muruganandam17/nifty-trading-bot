@@ -43,6 +43,33 @@ class DataFetcher:
             logger.error(f"Failed to get historical data for {symbol}: {e}")
             return None
     
+    def get_data_for_timeframe(self, symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
+        """Get historical data for a specific timeframe"""
+        # Map timeframe to yfinance interval
+        tf_map = {
+            '5m': '5m',
+            '15m': '15m', 
+            '30m': '30m',
+            '60m': '1h',
+            '120m': '2h',
+            '240m': '4h',
+            '1d': '1d'
+        }
+        interval = tf_map.get(timeframe, '5m')
+        
+        # Period based on timeframe
+        period = "60d" if interval in ['4h', '1d'] else "10d"
+        
+        try:
+            ticker = yf.Ticker(f"{symbol.upper()}.NS")
+            df = ticker.history(period=period, interval=interval)
+            if df.empty:
+                return None
+            return df
+        except Exception as e:
+            logger.error(f"Failed to get {timeframe} data for {symbol}: {e}")
+            return None
+    
     def get_live_candle(self, symbol: str, interval: str = "5m") -> Optional[pd.DataFrame]:
         """Get latest candle data"""
         try:
