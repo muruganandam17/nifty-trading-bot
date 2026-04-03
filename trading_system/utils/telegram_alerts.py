@@ -803,6 +803,84 @@ async def psarscan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 
+# Global reference for realtime monitor
+realtime_monitor = None
+
+
+async def monitorstart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /monitorstart command - Start real-time PSAR monitoring"""
+    global realtime_monitor
+    
+    from strategies.realtime_psar_monitor import start_monitoring
+    
+    await update.message.reply_text(
+        "🚀 *Starting Real-Time PSAR Monitor*\n\n"
+        "Monitoring 50 Nifty F&O stocks across:\n"
+        "• 60m (1hr)\n"
+        "• 4h (4hr)\n"
+        "• 1d (Daily)\n\n"
+        "Will alert on any PSAR crossover in real-time!\n"
+        "Use /monitorstop to stop.",
+        parse_mode='Markdown'
+    )
+    
+    # Start the monitoring (pass None for now, will integrate with Flattrade)
+    realtime_monitor = start_monitoring()
+    
+    await update.message.reply_text(
+        "✅ *Monitor Started!*\n\n"
+        "Running in background...\n"
+        "Alerts will be sent when PSAR crossovers detected.",
+        parse_mode='Markdown'
+    )
+
+
+async def monitorstop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /monitorstop command - Stop real-time PSAR monitoring"""
+    global realtime_monitor
+    
+    from strategies.realtime_psar_monitor import stop_monitoring
+    
+    stop_monitoring()
+    realtime_monitor = None
+    
+    await update.message.reply_text(
+        "🛑 *Monitor Stopped*\n\n"
+        "Real-time PSAR monitoring has been stopped.",
+        parse_mode='Markdown'
+    )
+
+
+async def monitorstatus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /monitorstatus command - Check monitor status"""
+    global realtime_monitor
+    
+    if realtime_monitor and realtime_monitor.running:
+        stats = f"""
+📊 *PSAR Monitor Status*
+
+🟢 Status: Running
+
+📈 Monitoring: 50 Nifty F&O stocks
+⏱️ Timeframes: 60m, 4h, 1d
+🔄 Check interval: 60 seconds
+
+Stocks: RELIANCE, TCS, HDFCBANK, INFY, SBIN, etc.
+
+Use /monitorstop to stop monitoring.
+"""
+    else:
+        stats = """
+📊 *PSAR Monitor Status*
+
+🔴 Status: Stopped
+
+Use /monitorstart to start real-time monitoring.
+"""
+    
+    await update.message.reply_text(stats, parse_mode='Markdown')
+
+
 async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /token command to update Flatrade credentials"""
     global FLATTRADE_TOKEN, FLATTRADE_USER_ID, FLATTRADE_API_KEY
@@ -975,6 +1053,9 @@ def main():
     app.add_handler(CommandHandler("psar", psar_command))
     app.add_handler(CommandHandler("newalert", newalert_command))
     app.add_handler(CommandHandler("psarscan", psarscan_command))
+    app.add_handler(CommandHandler("monitorstart", monitorstart_command))
+    app.add_handler(CommandHandler("monitorstop", monitorstop_command))
+    app.add_handler(CommandHandler("monitorstatus", monitorstatus_command))
     app.add_handler(CommandHandler("token", token_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
