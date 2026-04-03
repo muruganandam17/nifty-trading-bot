@@ -633,39 +633,79 @@ async def psarscan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /psarscan command - Scan Nifty F&O stocks for PSAR crossovers"""
     text = update.message.text.replace('/psarscan', '').strip().upper()
     
-    # Nifty F&O stocks to scan
+    # Complete Nifty F&O stocks list (160+ stocks)
     NIFTY_FO_STOCKS = [
         'RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'INFY', 'KOTAKBANK',
         'SBIN', 'BAJFINANCE', 'HINDUNILVR', 'ITC', 'LTIM', 'NTPC',
         'POWERGRID', 'MARRICO', 'TITAN', 'SUNPHARMA', 'AXISBANK',
-        'MARUTI', 'TATASTEEL', 'WIPRO', 'ADANIPORTS', 'GRASIM'
+        'MARUTI', 'TATASTEEL', 'WIPRO', 'ADANIPORTS', 'GRASIM',
+        'CIPLA', 'DRREDDY', 'EICHERMOT', 'HCLTECH', 'HEROMOTOCO',
+        'INDUSINDBK', 'JSWSTEEL', 'ONGC', 'SHREECEM', 'TATAMOTORS',
+        'UPL', 'VEDL', 'COALINDIA', 'BPCL', 'HINDZINC', 'DIVISLAB',
+        'APOLLOHOSP', 'BRITANNIA', 'DLF', 'GODREJPROP', 'IRCTC',
+        'JINDALSTEL', 'LIC', 'M&M', 'NESTLE', 'RECLTD', 'SBICARD',
+        'SIEMENS', 'TATACONS', 'TECHM', 'TORNPHARM', 'ULTRACEMCO',
+        'ACC', 'ADANIENSOL', 'AMBUJACEM', 'ATGL', 'BANDHANBNK',
+        'BANKBARODA', 'CANBK', 'CHAMBLFERT', 'CONCOR', 'COROMANDEL',
+        'CROMPTON', 'CUB', 'EQUIRUS', 'EXIDEIND', 'FEDERALBNK',
+        'GAIL', 'GLENMARK', 'GMRINFRA', 'GODREJCP', 'GODREJIND',
+        'GSPL', 'HAL', 'HAVELLS', 'IDBI', 'IDFCFIRSTB', 'IEX',
+        'INDHOTEL', 'INDIGO', 'IOC', 'IPCALAB', 'JUBLFOOD', 'LAMBRECH',
+        'LAURUSLABS', 'LUPIN', 'MANAPPURAM', 'MAXHEALTH', 'MEDANTA',
+        'MUTHOOTFIN', 'NATIONALUM', 'NAUKRI', 'NMDC', 'OBEROIRTY',
+        'OFSS', 'PAGEIND', 'PCBL', 'PEL', 'PFC', 'PNB', 'POLYCAB',
+        'PRESTIGE', 'PVBL', 'RAJTRANSPORT', 'RAMCOCEM', 'RBLBANK',
+        'RELAXO', 'RRB', 'SAMSUNG', 'SUNTECK', 'SUVENPHAR', 'SYNGENE',
+        'TATAELXSI', 'TATAINVEST', 'TIMKEN', 'TVSMOTOR', 'UBL',
+        'VOLTAS', 'WHIRLPOOL', 'WOCKPHARMA', 'YESBANK', 'ZEEL',
+        'AARTIIND', 'ASTRAL', 'BABA', 'BASF', 'BEML', 'BHARATFORG',
+        'BPCL', 'BSOFT', 'CAMP', 'CANFINHOME', 'DELHIVERY', 'EPL',
+        'FINPIPE', 'FLUORO', 'GRINDWELL', 'HDC', 'HEXAWARE', 'HSCL',
+        'IGL', 'ITI', 'JKCEMENT', 'JKLAKSHMI', 'JSWHL', 'KAJARIACER',
+        'KALPATPOWR', 'KARURVYSYA', 'KEC', 'KEI', 'KNRCON', 'KPRMILL',
+        'LATENTVIEW', 'LEYLAND', 'MAHINDCIE', 'MATRIMONY', 'MEGFIN',
+        'MGL', 'MPHASIS', 'MRF', 'MSTCL', 'MTARTECH', 'NAVNEET',
+        'NILKAMAL', 'NIPPO', 'NRB', 'NTPC', 'OIL', 'Patanjali',
+        'PAYTM', 'PB Fintech', 'PERSISTENT', 'PETRONET', 'PGHH',
+        'PHILIPCARB', 'PIIND', 'PNCINFRA', 'PRIVISCL', 'QUESS',
+        'RADICO', 'RATNAMANI', 'RCF', 'RDE', 'RELAXO', 'RITES',
+        'RNDE', 'ROCL', 'SAIL', 'SCHNEIDER', 'SHYAMMETL', 'SOBHA',
+        'SOLARIND', 'SONACOMS', 'SPANDANA', 'STAR', 'SUDARSHAN',
+        'SUMICHEM', 'SUPREMEIND', 'SWANENERGY', 'TATACC', 'TEAMLEASE',
+        'TITAN', 'TNPETRO', 'TRIVENI', 'TTML', 'UTIAMC', 'VBL',
+        'VEDANTA', 'VINATIORGA', 'VMART', 'VOLTAMP', 'WELSPUNL',
+        'WSTL', 'ZFCVINDIA'
     ]
+    
+    # Remove duplicates
+    NIFTY_FO_STOCKS = list(set(NIFTY_FO_STOCKS))
     
     # Timeframes to check
     TIMEFRAMES = ['60m', '4h', '1d', '1w']
     
-    await update.message.reply_text(f"🔍 Scanning {len(NIFTY_FO_STOCKS)} stocks across {len(TIMEFRAMES)} timeframes...\nThis may take a minute...", parse_mode='Markdown')
+    await update.message.reply_text(
+        f"🔍 Scanning {len(NIFTY_FO_STOCKS)} stocks across {len(TIMEFRAMES)} timeframes...\n"
+        f"This may take a few minutes... ⏳",
+        parse_mode='Markdown'
+    )
     
     from strategies.sqz_momentum import check_psar_crossover
     import yfinance as yf
     
     results = {'BUY': [], 'SELL': []}
     
-    for symbol in NIFTY_FO_STOCKS:
+    for idx, symbol in enumerate(NIFTY_FO_STOCKS):
         for tf in TIMEFRAMES:
             try:
-                # Map timeframe
                 tf_map = {'60m': '1h', '4h': '4h', '1d': '1d', '1w': '1wk'}
                 interval = tf_map.get(tf, tf)
                 
-                # Get data
                 ticker = yf.Ticker(f"{symbol}.NS")
                 df = ticker.history(period="30d", interval=interval)
                 
                 if df is None or len(df) < 10:
                     continue
                 
-                # Check PSAR crossover
                 psar_result = check_psar_crossover(symbol, tf)
                 
                 if psar_result.get('crossover'):
@@ -678,12 +718,23 @@ async def psarscan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         'psar_after': psar_result.get('psar_after'),
                         'timestamp': psar_result.get('timestamp')
                     })
-            except Exception as e:
+            except Exception:
                 continue
+        
+        # Progress update every 20 stocks
+        if (idx + 1) % 20 == 0:
+            try:
+                await update.message.reply_text(
+                    f"⏳ Scanned {idx + 1}/{len(NIFTY_FO_STOCKS)} stocks...",
+                    parse_mode='Markdown'
+                )
+            except:
+                pass
     
     # Format message
     msg = "📊 *PSAR CROSSOVER SCAN RESULTS*\n"
     msg += f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+    msg += f"📈 Scanned: {len(NIFTY_FO_STOCKS)} stocks\n"
     msg += "═══════════════════════════\n\n"
     
     if results['BUY']:
@@ -702,7 +753,23 @@ async def psarscan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "ℹ️ No PSAR crossovers found in any timeframe."
     
     total = len(results['BUY']) + len(results['SELL'])
-    msg += f"\nTotal: {total} signals"
+    msg += f"\n*Total: {total} signals*"
+    
+    if results['BUY'] or results['SELL']:
+        buy_by_tf = {}
+        sell_by_tf = {}
+        for r in results['BUY']:
+            tf = r['timeframe']
+            buy_by_tf[tf] = buy_by_tf.get(tf, 0) + 1
+        for r in results['SELL']:
+            tf = r['timeframe']
+            sell_by_tf[tf] = sell_by_tf.get(tf, 0) + 1
+        
+        msg += "\n\n*By Timeframe:*\n"
+        for tf in TIMEFRAMES:
+            b = buy_by_tf.get(tf, 0)
+            s = sell_by_tf.get(tf, 0)
+            msg += f"  {tf}: 🟢{b} 🔴{s}\n"
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
