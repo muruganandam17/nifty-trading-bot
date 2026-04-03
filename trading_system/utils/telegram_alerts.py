@@ -629,6 +629,84 @@ async def newalert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 
+async def psarscan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /psarscan command - Scan Nifty F&O stocks for PSAR crossovers"""
+    text = update.message.text.replace('/psarscan', '').strip().upper()
+    
+    # Nifty F&O stocks to scan
+    NIFTY_FO_STOCKS = [
+        'RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'INFY', 'KOTAKBANK',
+        'SBIN', 'BAJFINANCE', 'HINDUNILVR', 'ITC', 'LTIM', 'NTPC',
+        'POWERGRID', 'MARRICO', 'TITAN', 'SUNPHARMA', 'AXISBANK',
+        'MARUTI', 'TATASTEEL', 'WIPRO', 'ADANIPORTS', 'GRASIM'
+    ]
+    
+    # Timeframes to check
+    TIMEFRAMES = ['60m', '4h', '1d', '1w']
+    
+    await update.message.reply_text(f"🔍 Scanning {len(NIFTY_FO_STOCKS)} stocks across {len(TIMEFRAMES)} timeframes...\nThis may take a minute...", parse_mode='Markdown')
+    
+    from strategies.sqz_momentum import check_psar_crossover
+    import yfinance as yf
+    
+    results = {'BUY': [], 'SELL': []}
+    
+    for symbol in NIFTY_FO_STOCKS:
+        for tf in TIMEFRAMES:
+            try:
+                # Map timeframe
+                tf_map = {'60m': '1h', '4h': '4h', '1d': '1d', '1w': '1wk'}
+                interval = tf_map.get(tf, tf)
+                
+                # Get data
+                ticker = yf.Ticker(f"{symbol}.NS")
+                df = ticker.history(period="30d", interval=interval)
+                
+                if df is None or len(df) < 10:
+                    continue
+                
+                # Check PSAR crossover
+                psar_result = check_psar_crossover(symbol, tf)
+                
+                if psar_result.get('crossover'):
+                    direction = psar_result['crossover']
+                    results[direction].append({
+                        'symbol': symbol,
+                        'timeframe': tf,
+                        'price': psar_result.get('price'),
+                        'psar_before': psar_result.get('psar_before'),
+                        'psar_after': psar_result.get('psar_after'),
+                        'timestamp': psar_result.get('timestamp')
+                    })
+            except Exception as e:
+                continue
+    
+    # Format message
+    msg = "📊 *PSAR CROSSOVER SCAN RESULTS*\n"
+    msg += f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+    msg += "═══════════════════════════\n\n"
+    
+    if results['BUY']:
+        msg += "🟢 *BUY SIGNALS (PSAR crosses ABOVE):*\n"
+        for r in results['BUY']:
+            msg += f"• {r['symbol']} [{r['timeframe']}] @ ₹{r['price']:.2f}\n"
+        msg += "\n"
+    
+    if results['SELL']:
+        msg += "🔴 *SELL SIGNALS (PSAR crosses BELOW):*\n"
+        for r in results['SELL']:
+            msg += f"• {r['symbol']} [{r['timeframe']}] @ ₹{r['price']:.2f}\n"
+        msg += "\n"
+    
+    if not results['BUY'] and not results['SELL']:
+        msg += "ℹ️ No PSAR crossovers found in any timeframe."
+    
+    total = len(results['BUY']) + len(results['SELL'])
+    msg += f"\nTotal: {total} signals"
+    
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
 async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /token command to update Flatrade credentials"""
     global FLATTRADE_TOKEN, FLATTRADE_USER_ID, FLATTRADE_API_KEY
@@ -800,6 +878,7 @@ def main():
     app.add_handler(CommandHandler("entry", entry_command))
     app.add_handler(CommandHandler("psar", psar_command))
     app.add_handler(CommandHandler("newalert", newalert_command))
+    app.add_handler(CommandHandler("psarscan", psarscan_command))
     app.add_handler(CommandHandler("token", token_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     

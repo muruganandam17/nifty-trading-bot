@@ -14,6 +14,10 @@ _USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
 def get_yahoo_data(symbol, period='5d', interval='5m', max_retries=3):
     """Fetch data from Yahoo Finance using direct API"""
+    # Add .NS suffix for NSE stocks if not already present
+    if not symbol.startswith('^') and not symbol.endswith('.NS'):
+        symbol = f"{symbol}.NS"
+    
     interval_map = {'1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m', '60m': '60m', '1h': '1h', '4h': '4h', '1d': '1d'}
     interval = interval_map.get(interval, interval)
     
@@ -337,20 +341,15 @@ def check_psar_crossover(symbol: str, timeframe: str = '5m') -> dict:
     
     interval_map = {
         '1m': '1m', '5m': '5m', '15m': '15m',
-        '30m': '30m', '60m': '60m'
+        '30m': '30m', '60m': '60m', '120m': '2h', '240m': '4h'
     }
     
-    # Determine ticker
-    if symbol.startswith('^'):
-        ticker = symbol
-    else:
-        ticker = symbol
-    
     period = "5d" if timeframe in ['1m', '5m', '15m'] else "10d"
+    
     try:
-        df = ticker.history(period=period, interval=interval_map.get(timeframe, '5m'))
+        df = get_yahoo_data(symbol, period=period, interval=interval_map.get(timeframe, '5m'))
     except Exception as e:
-        result['error'] = f'Fetch error: {str(e)[:50]}'
+        result = {'error': f'Fetch error: {str(e)[:50]}'}
         return result
     
     result = {
