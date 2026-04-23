@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Commentary System</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#1a1a2e,#16213e);min-height:100vh;color:#e0e0e0}
+.container{max-width:1000px;margin:0 auto;padding:20px}
+header{text-align:center;padding:30px;border-bottom:1px solid #333;margin-bottom:30px}
+header h1{font-size:2.2rem;background:linear-gradient(90deg,#00d9ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header p{color:#888;margin-top:10px}
+.box{background:rgba(255,255,255,0.03);border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid rgba(255,255,255,0.1)}
+.box h2{color:#00d9ff;margin-bottom:15px;font-size:1.1rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px}
+.form-group{margin-bottom:15px}
+label{display:block;font-size:0.85rem;color:#aaa;margin-bottom:6px}
+input,textarea,select{width:100%;padding:12px;background:rgba(0,0,0,0.3);border:1px solid #333;border-radius:8px;color:#fff;font-size:0.95rem}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#00d9ff}
+textarea{min-height:100px;resize:vertical}
+.btn{padding:14px 28px;background:linear-gradient(90deg,#00d9ff,#00ff88);border:none;border-radius:8px;color:#1a1a2e;font-weight:600;cursor:pointer;font-size:1rem;transition:transform 0.2s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,217,255,0.3)}
+.btn:disabled{background:#555;cursor:not-allowed}
+.results{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.tf-card{background:rgba(0,0,0,0.3);padding:15px;border-radius:8px;border-left:3px solid #00d9ff}
+.tf-card h3{color:#00d9ff;margin-bottom:10px;font-size:0.9rem}
+.tf-card .price{font-size:1.3rem;font-weight:600;color:#fff}
+.tf-card .psar{color:#aaa;margin:5px 0}
+.tf-card .squeeze{font-weight:600}
+.sq-on{color:#ff6b6b}
+.sq-off{color:#00ff88}
+.sq-none{color:#888}
+.trend-up{color:#00ff88}
+.trend-down{color:#ff6b6b}
+.response{background:linear-gradient(135deg,rgba(0,217,255,0.1),rgba(0,255,136,0.1));border:1px solid rgba(0,255,136,0.3)}
+.response h2{color:#00ff88}
+.signal{display:inline-block;padding:10px 20px;border-radius:8px;font-size:1.2rem;font-weight:600;margin:10px 0}
+.signal.buy{background:rgba(0,255,136,0.2);color:#00ff88}
+.signal.sell{background:rgba(255,107,107,0.2);color:#ff6b6b}
+.signal.wait{background:rgba(255,255,255,0.1);color:#aaa}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:15px 0}
+.summary div{text-align:center;padding:10px;background:rgba(0,0,0,0.2);border-radius:8px}
+.summary .num{font-size:1.5rem;font-weight:600}
+.summary .label{font-size:0.75rem;color:#888}
+.rules{background:rgba(0,0,0,0.2);padding:15px;border-radius:8px;margin-top:15px}
+.rules h3{color:#00d9ff;margin-bottom:10px}
+.rules p{margin:5px 0;color:#ccc;font-size:0.9rem}
+.loading{text-align:center;padding:20px;color:#888}
+.error{background:rgba(255,0,0,0.2);border:1px solid #f00;color:#f88;padding:15px;border-radius:8px}
+@media(max-width:600px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<h1>📊 Trading Commentary System</h1>
+<p>PSAR + Squeeze Momentum Analysis • Yahoo Finance Data</p>
+</header>
+
+<div class="box">
+<h2>📈 Fetch Indicator Data</h2>
+<div class="grid">
+<div class="form-group">
+<label>Symbol</label>
+<input type="text" id="symbol" value="RELIANCE" placeholder="RELIANCE, NIFTY, BANKNIFTY">
+</div>
+<div class="form-group">
+<label>Timeframes (comma separated)</label>
+<input type="text" id="tfs" value="3m,5m,15m,30m,60m,120m,240m,1d">
+</div>
+</div>
+<button class="btn" id="fetchBtn" onclick="fetchAllData()">Fetch Indicators</button>
+</div>
+
+<div class="box" id="resultsBox" style="display:none;">
+<h2>📊 Results</h2>
+<div class="results" id="results"></div>
+</div>
+
+<div class="box">
+<h2>✍️ Market Commentary</h2>
+<div class="form-group">
+<label>Your Analysis</label>
+<textarea id="commentary" placeholder="Describe how the market is moving based on your indicators..."></textarea>
+</div>
+<div class="form-group">
+<label>Trade Direction</label>
+<select id="direction">
+<option value="">Select direction...</option>
+<option value="long">Long / Buy</option>
+<option value="short">Short / Sell</option>
+<option value="neutral">No Position / Watch</option>
+</select>
+</div>
+<button class="btn" onclick="submitAnalysis()">Submit → Get Bot Feedback</button>
+</div>
+
+<div class="box response" id="responseBox" style="display:none;">
+<h2>🤖 Bot Analysis</h2>
+<div id="response"></div>
+</div>
+</div>
+
+<script>
+// PSAR Calculator using user formula: SAR = PrevSAR + AF × (EP - PrevSAR)
+function calcPSAR(closes, highs, lows) {
+    const n = closes.length;
+    const psar = new Array(n);
+    const trend = new Array(n);
+    let af = 0.02;
+    let ep = highs[0];
+    let tr = 1;
+    psar[0] = closes[0];
+    trend[0] = 1;
+    
+    for (let i = 1; i < n; i++) {
+        const prevPSAR = psar[i-1];
+        const prevAF = af;
+        const prevEP = ep;
+        
+        // Formula: SAR = PrevSAR + PrevAF × (PrevEP - PrevSAR)
+        psar[i] = prevPSAR + prevAF * (prevEP - prevPSAR);
+        
+        if (tr === 1) {
+            if (lows[i] < psar[i]) {
+                tr = -1;
+                psar[i] = prevEP;
+                ep = lows[i];
+                af = 0.02;
+            } else {
+                trend[i] = 1;
+                if (highs[i] > ep) {
+                    ep = highs[i];
+                    af = Math.min(af + 0.02, 0.20);
+                }
+            }
+        } else {
+            if (highs[i] > psar[i]) {
+                tr = 1;
+                psar[i] = prevEP;
+                ep = highs[i];
+                af = 0.02;
+            } else {
+                trend[i] = -1;
+                if (lows[i] < ep) {
+                    ep = lows[i];
+                    af = Math.min(af + 0.02, 0.20);
+                }
+            }
+        }
+        if (!trend[i]) trend[i] = tr;
+    }
+    return { psar, trend };
+}
+
+// Squeeze Calculator (BB vs KC)
+function calcSqueeze(closes, highs, lows) {
+    const period = 20;
+    if (closes.length < period) return 'NONE';
+    
+    const sma = closes.slice(-period).reduce((a, b) => a + b, 0) / period;
+    const variance = closes.slice(-period).reduce((a, b) => a + (b - sma) ** 2, 0) / period;
+    const std = Math.sqrt(variance);
+    const bbWidth = 2 * std;  // 2 SD Bollinger Band
+    
+    // True Range
+    const tr = Math.max(
+        highs.at(-1) - lows.at(-1),
+        Math.abs(highs.at(-1) - closes.at(-2)),
+        Math.abs(lows.at(-1) - closes.at(-2))
+    );
+    const kcWidth = 1.5 * tr;  // 1.5x ATR
+    
+    if (bbWidth < kcWidth) return 'ON';
+    if (bbWidth > kcWidth) return 'OFF';
+    return 'NONE';
+}
+
+let allData = {};
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+async function fetchTF(tf) {
+    const sym = document.getElementById('symbol').value.toUpperCase();
+    const s = sym.includes('.NS') ? sym : sym + '.NS';
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s}?range=5d&interval=${tf}`;
+    
+    const resp = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    if (!resp.ok) return null;
+    
+    const d = await resp.json();
+    const q = d?.chart?.result?.[0]?.indicators?.quote?.[0];
+    if (!q) return null;
+    
+    const close = q.close.filter(x => x != null);
+    const high = q.high.filter(x => x != null);
+    const low = q.low.filter(x => x != null);
+    
+    if (close.length < 20) return null;
+    
+    // Get current and previous
+    const currClose = close.at(-1);
+    const prevClose = close.at(-2);
+    const currHigh = high.at(-1);
+    const currLow = low.at(-1);
+    
+    // PSAR
+    const { psar, trend } = calcPSAR(close, high, low);
+    const currPSAR = psar.at(-1);
+    const prevPSAR = psar.at(-2);
+    const currTrend = trend.at(-1);
+    
+    // Squeeze
+    const squeeze = calcSqueeze(close, high, low);
+    
+    return {
+        current: { price: currClose, high: currHigh, low: currLow, psar: currPSAR, trend: currTrend, squeeze },
+        previous: { price: prevClose, psar: prevPSAR, trend: trend.at(-2) }
+    };
+}
+
+async function fetchAllData() {
+    const btn = document.getElementById('fetchBtn');
+    btn.disabled = true;
+    btn.textContent = 'Fetching...';
+    
+    const tfs = document.getElementById('tfs').value.split(',').map(t => t.trim());
+    allData = {};
+    
+    const results = document.getElementById('results');
+    results.innerHTML = '<div class="loading">Loading data from Yahoo Finance...</div>';
+    document.getElementById('resultsBox').style.display = 'block';
+    
+    for (const tf of tfs) {
+        try {
+            const d = await fetchTF(tf);
+            if (d) allData[tf] = d;
+        } catch (e) {
+            console.error(tf, e);
+        }
+    }
+    
+    displayResults();
+    btn.disabled = false;
+    btn.textContent = 'Fetch Indicators';
+}
+
+function displayResults() {
+    const results = document.getElementById('results');
+    
+    if (Object.keys(allData).length === 0) {
+        results.innerHTML = '<div class="error">Could not fetch data. Check symbol.</div>';
+        return;
+    }
+    
+    results.innerHTML = Object.entries(allData).map(([tf, d]) => {
+        const c = d.current;
+        const sq = c.squeeze;
+        return `
+        <div class="tf-card">
+            <h3>${tf}</h3>
+            <div class="price">₹${c.price?.toFixed(2)}</div>
+            <div class="psar">PSAR: ${c.psar?.toFixed(2)} <span class="${c.trend === 1 ? 'trend-up' : 'trend-down'}">(${c.trend === 1 ? '↑' : '↓'})</span></div>
+            <div class="squeeze sq-${sq.toLowerCase()}">${sq}</div>
+        </div>
+        `;
+    }).join('');
+}
+
+function submitAnalysis() {
+    const commentary = document.getElementById('commentary').value;
+    const direction = document.getElementById('direction').value;
+    
+    // Apply trading rules
+    let sqOn = 0, sqOff = 0, sqFiring = 0;
+    let bullish = 0, bearish = 0;
+    
+    for (const [tf, d] of Object.entries(allData)) {
+        if (!d.current) continue;
+        const sq = d.current.squeeze;
+        const tr = d.current.trend;
+        
+        if (sq === 'ON') sqOn++;
+        else if (sq === 'OFF') sqOff++;
+        
+        // Check if momentum increasing (previous OFF, current firing)
+        if (d.previous?.squeeze === 'ON' && sq === 'OFF') sqFiring++;
+        
+        if (tr === 1) bullish++;
+        else bearish++;
+    }
+    
+    // Trading rules
+    let signal = 'WAIT';
+    let reason = '';
+    
+    if (sqOff > 0 && bullish > bearish) {
+        signal = 'BUY';
+        reason = 'PSAR bullish + Squeeze expanding';
+    } else if (sqOff > 0 && bearish > bullish) {
+        signal = 'SELL';
+        reason = 'PSAR bearish + Squeeze expanding';
+    } else if (sqOn > 3) {
+        signal = 'WAIT';
+        reason = `${sqOn} TFs in Squeeze (consolidating)`;
+    }
+    
+    const emoji = signal === 'BUY' ? '🟢' : signal === 'SELL' ? '🔴' : '⏸️';
+    
+    const resp = document.getElementById('response');
+    resp.innerHTML = `
+        <p><span class="signal ${signal.toLowerCase()}">${emoji} ${signal}</span></p>
+        <p><em>${reason}</em></p>
+        
+        <div class="summary">
+            <div><div class="num">${sqOn}</div><div class="label">Squeeze ON</div></div>
+            <div><div class="num">${sqOff}</div><div class="label">Squeeze OFF</div></div>
+            <div><div class="num">${bullish}</div><div class="label">Bullish</div></div>
+            <div><div class="num">${bearish}</div><div class="label">Bearish</div></div>
+        </div>
+        
+        <div class="rules">
+            <h3>📋 Your Rules Applied:</h3>
+            <p>• BUY: PSAR below price + Squeeze OFF (expansion)</p>
+            <p>• SELL: PSAR above price + Squeeze OFF</p>
+            <p>• WAIT: Squeeze ON (consolidation)</p>
+            <p>• Confirm with higher TF alignment before entry</p>
+        </div>
+    `;
+    
+    document.getElementById('responseBox').style.display = 'block';
+}
+</script>
+</body>
+</html>
